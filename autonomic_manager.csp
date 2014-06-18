@@ -1,0 +1,71 @@
+B = <> -- buffer
+
+KB = {(0,{2,3}), (1, {4})} -- KB{(event,{policy1, policy2, ..., policyN}) , ...} -- knowledge_base
+E = {0..1}
+A = {1}
+P = {2..4}
+
+channel event, monitor, get_data, get_event, analizer, add_e, get_e: E --update_mart == update M@RT
+channel action: A
+channel store, get_policy, execute
+channel update_mart : E
+channel get_mart, analize
+channel policy : E.P
+channel evaluate : P
+
+SYS_EVENT(e) = event.e -> SYSTEM
+SYS_ACTION(a) = action.a -> SYSTEM
+
+SYSTEM = ||| e : E @ SYS_EVENT(e)
+		 []
+		 ||| a : A @ SYS_ACTION(a)
+
+SENSOR(e) = event.e -> add_e.e -> (||| a : E @ SENSOR(a))
+SENSORS = ||| e : E @ SENSOR(e) -- erro =(
+
+
+-- buffer 
+BUFF(N,s) = #s < N-1 & add_e?e -> BUFF(N,s^<e>)
+			[]
+			#s > 0 & get_e!(head(s)) -> BUFF(N,tail(s))
+-- end buffer
+
+MONITOR = get_e?e -> update_mart!e -> MONITOR
+ANALIZER = update_mart?e -> analize -> policy!e!2 -> ANALIZER -- criar um get_policy
+PLANNER = policy?e?p -> evaluate!p -> execute -> PLANNER -- execute um plano de ação
+
+-- data storage
+    -- M@RT mantém o estado do sistema e faz parte da base de conhecimento
+   
+-- implementar uma função para pegar as políticas na base de dados			
+-- DATA(e) = get_state?s -> member(e,KB) & 
+-- end data storage
+
+KNOWLEDGE_BASE =  update_mart -> KNOWLEDGE_BASE 
+                  []
+				  get_policy -> KNOWLEDGE_BASE
+
+-- detect symptom
+DETECT_SYMPTOM(p) = NOTIFY_PLANNER -- das políticas presentes detectar o sintoma a partir de um evento
+NOTIFY_PLANNER = evaluate!p -> ANALIZER 
+-- end detect symptom
+
+
+
+--analizer?e -> get_policy -> ANALIZER --DETECT_SYMPTOM(p) -- das políticas selecionadas planejar a ação a ser tomada
+--PLANNER = evaluate?p -> change -> execute!a -> PLANNER
+--EXECUTER = execute?a -> EXECUTER
+
+TOUCH_POINT(p) = execute!p -> action!p -> TOUCH_POINT(p)
+
+
+AM = (SYSTEM
+         [|{|event|}|] 
+     SENSORS) 
+         [|{|monitor|}|] 
+     (MONITOR
+         [|{|update_mart|}|]
+     KNOWLEDGE_BASE)
+     
+assert AM :[deadlock free]
+assert AM :[deterministic]
