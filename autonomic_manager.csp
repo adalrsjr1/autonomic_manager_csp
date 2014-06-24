@@ -13,39 +13,58 @@ channel execute, change: A
 channel update_mart : E
 channel policy: POLICIES
 
---SYSTEM = SENSORS
-		 --[]
---		 ACTUATORS
-
+-- sensores do sistema
 SENSOR(e) = event.e -> add_e.e -> SENSOR(e)
 SENSORS = ||| e : E @ SENSOR(e) 
 
+-- atuadores do sistema --
+-- atuador não deterministico
 ACTUATOR_ND(a) = execute?aa -> if aa != a then ACTUATOR_ND(a) else apply.aa -> ACTUATOR_ND(a) 
+-- atuador deterministico
 ACTUATOR_D(a) = execute.a -> apply.a -> EXECUTER_D
---ACTUATOR = execute?a -> apply!a -> ACTUATOR
 
+-- buffer para os eventos disparados pelo sistema
+	-- os eventos são enfileirados e processados pelo AU um a um
 -- buffer event
 BUFF(N,s) = #s < N-1 & add_e?e -> BUFF(N,s^<e>)
 			[]
 			#s > 0 & get_e!(head(s)) -> BUFF(N,tail(s))
 -- end buffer
 
+-- monitora o buffer e atualiza o mart do sistema de acorodo com os eventos
 MONITOR = get_e?e -> update_mart!e -> MONITOR
 
-analize(e) = if e == 0 then (0,5,8) else (1,6,9) -- detect_symptom -- analize mart -- kb
+-- analiza o evento e seleciona a politica associada
+  -- // poderia colocar prioradade nas politicias
+  -- o metodo 'analize()' deve avaliar o sistema pelo mart e 
+  -- detectar o sintoma a partir da relação entre o evento disparado e o estado do sistema
+  -- processo de detecção do sintoma
+analize(e) = if e == 0 then (0,5,8) else (1,6,9) 
+
+-- avalia uma política e selecioan a ação a ser tomada 
+	-- avalia o sintoma, i.e., a condição que deve ser satisfeita para aplicar a ação
+	-- seleciona a ação relacionada a este sintoma e envia para ser executada no sistema
 evaluate(p) = if p == (0,5,8) then 8 else 9
 
+-- buffer para as ações a serem executadas pelo sistema
+	-- as ações são enfileiradas e processadas uma a uma pelos seus respectivos atuadores
 -- buffer action
 BUFF_A(N,s) = #s < N-1 & add_a?a -> BUFF_A(N,s^<a>)
 			  []
 			  #s > 0 & get_a!(head(s)) -> BUFF_A(N,tail(s))
 -- end buffer
 
+-- de acoro com a alteração do mart o evento é analizado 
 ANALIZER = update_mart?e -> policy!analize(e) -> ANALIZER 
 
+-- um plano de ação é tomado de acordo com a avaliação da política
+	-- a ação é add ao buffer de ações para ser então executada
 PLANNER = policy?p -> change!evaluate(p) -> add_a!evaluate(p) -> PLANNER 
 
+-- executa a ação no sistema através dos adaptadores doa atuadores (TOUCH_POINT)
+-- executa de forma não deterministica
 EXECUTER_ND = get_a?a -> TOUCH_POINT_ND(a)
+-- execute de forma deterministica
 EXECUTER_D = get_a?a -> TOUCH_POINT_D(a)
 
 -- data storage
@@ -60,41 +79,48 @@ EXECUTER_D = get_a?a -> TOUCH_POINT_D(a)
 --				  get_policy -> KNOWLEDGE_BASE
 
 --TOUCH_POINT(a) = change?aa -> a == aa & execute!aa -> TOUCH_POINT(a) -- se a ação for diferente do adaptador STOP -- refinar aqui?!?!?
+
+-- cada adaptador envia a ação processado ao seu respectivo atuador
+-- não deterministico
 TOUCH_POINT_ND(a) = execute!a -> EXECUTER_ND
--- trocar por para resolver o não determinismo
+-- deterministico
 TOUCH_POINT_D(a) = execute!a -> ACTUATOR_D(a)
---TOUCH_POINT = change?a -> execute!a -> TOUCH_POINT
 
---ACT(a) = TOUCH_POINT(a) [|{|execute|}|] ACTUATOR(a) -- comunicação 1:1 entre o sistema autonomico e os atuadores, apenas um determinado atuador por vez executa sua ação
---ACT = TOUCH_POINT(8) [|{|execute|}|] ACTUATOR(8)
-
-
-
+-- gerente autonomico com buffer de eventos e ações com tamanho max 3
+	-- sem os atuadores
 AM = (
 	  	(
-			(BUFF(3,B_E)
-			[|{|get_e|}|]
-			MONITOR
-		)
-		[|{|update_mart|}|]
+			(
+				BUFF(3,B_E)
+					[|{|get_e|}|]
+				MONITOR
+			)
+			[|{|update_mart|}|]
 			(
 				ANALIZER
-				[|{|policy|}|]
+					[|{|policy|}|]
 				(
-					(PLANNER
-					[|{|add_a|}|]
-					BUFF_A(3,B_A))
-					[|{|get_a|}|] EXECUTER_D
+					(
+						PLANNER
+							[|{|add_a|}|]
+						BUFF_A(3,B_A)
+					)
+						[|{|get_a|}|] 
+					EXECUTER_D
 				)
 			)
 		)
-		--[|{|change|}|]
-	    --ACTUATORS	
 	 )
-    
+
+-- gerente autonomico comunicando com os atuadores
+-- todos os atuadores em paralelo
+	-- não deterministico
 AU_ACT_ND = AM [|{|execute|}|] ( ||| a: A @ ACTUATOR_ND(a) )
+-- cada atuador é chamado por vez de acordo com a ação
+	-- deterministico
 AU_ACT_D = AM
---AU_ACT = AM [|{|change|}|] ACT
+
+-- todo o sistema - sensores e gerente autonomico
 WHOLE_SYS = SENSORS [|{|add_e|}|] AU_ACT_D
 
 assert WHOLE_SYS :[deadlock free]
@@ -103,13 +129,18 @@ assert WHOLE_SYS :[deterministic]
 assert AM :[deadlock free]
 assert AM :[deterministic]
 
+assert AU_ACT_ND :[deadlock free]
+assert AU_ACT_ND :[deterministic]
+
 assert AU_ACT_D :[deadlock free]
 assert AU_ACT_D :[deterministic]
 
 assert AU_ACT_ND [T= AU_ACT_D
 assert AU_ACT_ND [FD= AU_ACT_D
+
+assert EXECUTER_ND [T= EXECUTER_D
+assert EXECUTER_ND [FD= EXECUTER_D
+
 --assert ||| a: A @ ACT(a) :[deadlock free]
 --assert ||| a: A @ ACT(a) :[deterministic]
 
---assert ACT :[deadlock free]
---assert ACT :[deterministic]
