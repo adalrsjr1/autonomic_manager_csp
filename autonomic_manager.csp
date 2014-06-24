@@ -1,4 +1,5 @@
-B = <> -- buffer
+B_E = <> -- buffer events
+B_A = <> -- buffer actions
 
 E = {0,1}
 A = {8,9}
@@ -6,7 +7,7 @@ POLICIES = {(0,5,8),(1,6,9)} -- E.C.A.
 --POLICY = (event, condition,action)
 
 channel event, add_e, get_e: E --update_mart == update M@RT
-channel apply: A
+channel apply, add_a, get_a: A
 channel get_policy
 channel execute, change: A
 channel update_mart : E
@@ -19,10 +20,11 @@ channel policy: POLICIES
 SENSOR(e) = event.e -> add_e.e -> SENSOR(e)
 SENSORS = ||| e : E @ SENSOR(e) 
 
-ACTUATOR(a) = execute.a -> apply.a -> ACTUATOR(a) 
+ACTUATOR_ND(a) = execute?aa -> if aa != a then ACTUATOR_ND(a) else apply.aa -> ACTUATOR_ND(a) 
+ACTUATOR_D(a) = execute.a -> apply.a -> EXECUTER_D
+--ACTUATOR = execute?a -> apply!a -> ACTUATOR
 
-
--- buffer 
+-- buffer event
 BUFF(N,s) = #s < N-1 & add_e?e -> BUFF(N,s^<e>)
 			[]
 			#s > 0 & get_e!(head(s)) -> BUFF(N,tail(s))
@@ -33,9 +35,18 @@ MONITOR = get_e?e -> update_mart!e -> MONITOR
 analize(e) = if e == 0 then (0,5,8) else (1,6,9) -- detect_symptom -- analize mart -- kb
 evaluate(p) = if p == (0,5,8) then 8 else 9
 
+-- buffer action
+BUFF_A(N,s) = #s < N-1 & add_a?a -> BUFF_A(N,s^<a>)
+			  []
+			  #s > 0 & get_a!(head(s)) -> BUFF_A(N,tail(s))
+-- end buffer
+
 ANALIZER = update_mart?e -> policy!analize(e) -> ANALIZER 
 
-PLANNER = policy?p -> change!evaluate(p) -> PLANNER 
+PLANNER = policy?p -> change!evaluate(p) -> add_a!evaluate(p) -> PLANNER 
+
+EXECUTER_ND = get_a?a -> TOUCH_POINT_ND(a)
+EXECUTER_D = get_a?a -> TOUCH_POINT_D(a)
 
 -- data storage
     -- M@RT mantém o estado do sistema e faz parte da base de conhecimento
@@ -48,29 +59,43 @@ PLANNER = policy?p -> change!evaluate(p) -> PLANNER
 --                  []
 --				  get_policy -> KNOWLEDGE_BASE
 
-TOUCH_POINT(a) = change?aa -> a == aa & execute!aa -> TOUCH_POINT(a) -- se a ação for diferente do adaptador STOP -- refinar aqui?!?!?
+--TOUCH_POINT(a) = change?aa -> a == aa & execute!aa -> TOUCH_POINT(a) -- se a ação for diferente do adaptador STOP -- refinar aqui?!?!?
+TOUCH_POINT_ND(a) = execute!a -> EXECUTER_ND
+-- trocar por para resolver o não determinismo
+TOUCH_POINT_D(a) = execute!a -> ACTUATOR_D(a)
+--TOUCH_POINT = change?a -> execute!a -> TOUCH_POINT
 
-ACT(a) = TOUCH_POINT(a) [|{|execute|}|] ACTUATOR(a) -- comunicação 1:1 entre o sistema autonomico e os atuadores, apenas um determinado atuador por vez executa sua ação
+--ACT(a) = TOUCH_POINT(a) [|{|execute|}|] ACTUATOR(a) -- comunicação 1:1 entre o sistema autonomico e os atuadores, apenas um determinado atuador por vez executa sua ação
+--ACT = TOUCH_POINT(8) [|{|execute|}|] ACTUATOR(8)
+
+
 
 AM = (
 	  	(
-			(BUFF(3,B)
+			(BUFF(3,B_E)
 			[|{|get_e|}|]
 			MONITOR
 		)
 		[|{|update_mart|}|]
-		(
-			ANALIZER
-			[|{|policy|}|]
-			PLANNER)
+			(
+				ANALIZER
+				[|{|policy|}|]
+				(
+					(PLANNER
+					[|{|add_a|}|]
+					BUFF_A(3,B_A))
+					[|{|get_a|}|] EXECUTER_D
+				)
+			)
 		)
 		--[|{|change|}|]
 	    --ACTUATORS	
 	 )
     
-AU_ACT = AM [|{|change|}|] ( ||| a: A @ ACT(a) )
-
-WHOLE_SYS = SENSORS [|{|add_e|}|] AU_ACT
+AU_ACT_ND = AM [|{|execute|}|] ( ||| a: A @ ACTUATOR_ND(a) )
+AU_ACT_D = AM
+--AU_ACT = AM [|{|change|}|] ACT
+WHOLE_SYS = SENSORS [|{|add_e|}|] AU_ACT_D
 
 assert WHOLE_SYS :[deadlock free]
 assert WHOLE_SYS :[deterministic]
@@ -78,11 +103,13 @@ assert WHOLE_SYS :[deterministic]
 assert AM :[deadlock free]
 assert AM :[deterministic]
 
-assert AU_ACT :[deadlock free]
-assert AU_ACT :[deterministic]
+assert AU_ACT_D :[deadlock free]
+assert AU_ACT_D :[deterministic]
 
-assert ||| a: A @ ACT(a) :[deadlock free]
-assert ||| a: A @ ACT(a) :[deterministic]
+assert AU_ACT_ND [T= AU_ACT_D
+assert AU_ACT_ND [FD= AU_ACT_D
+--assert ||| a: A @ ACT(a) :[deadlock free]
+--assert ||| a: A @ ACT(a) :[deterministic]
 
-assert ACT(8) :[deadlock free]
-assert ACT(8) :[deterministic]
+--assert ACT :[deadlock free]
+--assert ACT :[deterministic]
