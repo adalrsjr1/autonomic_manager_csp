@@ -1,10 +1,12 @@
 B_E = <> -- buffer events
 B_A = <> -- buffer actions
 
-E = {0,1}
+E = {0,1} 
 A = {8,9}
 POLICIES = {(0,5,8),(1,6,9)} -- E.C.A. 
 --POLICY = (event, condition,action)
+
+POL_BASE = {}
 
 channel event, add_e, get_e: E --update_mart == update M@RT
 channel apply, add_a, get_a: A
@@ -39,11 +41,13 @@ MONITOR = get_e?e -> update_mart!e -> MONITOR
   -- o metodo 'analize()' deve avaliar o sistema pelo mart e 
   -- detectar o sintoma a partir da relação entre o evento disparado e o estado do sistema
   -- processo de detecção do sintoma
+  -- // implementar direito esta função
 analize(e) = if e == 0 then (0,5,8) else (1,6,9) 
 
 -- avalia uma política e selecioan a ação a ser tomada 
 	-- avalia o sintoma, i.e., a condição que deve ser satisfeita para aplicar a ação
 	-- seleciona a ação relacionada a este sintoma e envia para ser executada no sistema
+	-- // implementar direito esta função
 evaluate(p) = if p == (0,5,8) then 8 else 9
 
 -- buffer para as ações a serem executadas pelo sistema
@@ -66,19 +70,6 @@ PLANNER = policy?p -> change!evaluate(p) -> add_a!evaluate(p) -> PLANNER
 EXECUTER_ND = get_a?a -> TOUCH_POINT_ND(a)
 -- execute de forma deterministica
 EXECUTER_D = get_a?a -> TOUCH_POINT_D(a)
-
--- data storage
-    -- M@RT mantém o estado do sistema e faz parte da base de conhecimento
-   
--- implementar uma função para pegar as políticas na base de dados			
--- DATA(e) = get_state?s -> member(e,KB) & 
--- end data storage
-
---KNOWLEDGE_BASE =  update_mart -> KNOWLEDGE_BASE 
---                  []
---				  get_policy -> KNOWLEDGE_BASE
-
---TOUCH_POINT(a) = change?aa -> a == aa & execute!aa -> TOUCH_POINT(a) -- se a ação for diferente do adaptador STOP -- refinar aqui?!?!?
 
 -- cada adaptador envia a ação processado ao seu respectivo atuador
 -- não deterministico
@@ -141,6 +132,28 @@ assert AU_ACT_ND [FD= AU_ACT_D
 assert EXECUTER_ND [T= EXECUTER_D
 assert EXECUTER_ND [FD= EXECUTER_D
 
---assert ||| a: A @ ACT(a) :[deadlock free]
---assert ||| a: A @ ACT(a) :[deterministic]
+-- middleware
 
+channel invoke, reply, marsh, req, frwd, un_marsh, to_req, ivk, to_ivk, to_reply, r_to_reply, bckd
+
+CLIENT = req ->  to_reply -> CLIENT
+REMOTE_OBJ = invoke -> reply -> REMOTE_OBJ
+
+-- broker --
+REQUESTOR = req -> event.0 -> marsh -> to_req -> frwd -> bckd -> reply -> un_marsh -> to_reply -> REQUESTOR
+
+MARSHALLER = marsh -> MARSHALLER
+             [] un_marsh -> MARSHALLER
+
+INVOKER = frwd -> event.1 -> ivk -> un_marsh -> to_ivk -> invoke -> reply -> marsh -> to_reply -> bckd -> INVOKER
+-- end broker --
+
+MW = (CLIENT [|{|req, to_reply|}|] (REQUESTOR [|{|marsh,un_marsh|}|] MARSHALLER)) [|{|frwd,bckd|}|] (REMOTE_OBJ [|{|invoke,reply|}|] (INVOKER [|{|marsh,un_marsh|}|] MARSHALLER))
+
+assert MW :[deadlock free]
+assert MW :[deterministic]
+
+-- midleware 
+MW_AU = MW [|{|event|}|] WHOLE_SYS
+assert MW_AU :[deadlock free]
+assert MW_AU :[deterministic]
