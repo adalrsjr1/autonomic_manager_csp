@@ -1,27 +1,31 @@
 B = <> -- buffer
 
-KB = {(0,{2,3}), (1, {4})} -- KB{(event,{policy1, policy2, ..., policyN}) , ...} -- knowledge_base
-E = {0..1}
-A = {1}
-P = {2..4}
+E = {0,1}
+A = {0,1}
+P = {2..3}
+C = {5..7}
+POLICIES = {POLICY_1, POLICY_2} 
+--POLICY = (event, condition,action)
+POLICY_1 = (0,5,8)
+POLICY_2 = (1,6,9)
 
 channel event, monitor, get_data, get_event, analizer, add_e, get_e: E --update_mart == update M@RT
 channel action: A
-channel store, get_policy, execute
+channel store, get_policy
+channel execute: A
 channel update_mart : E
-channel get_mart, analize
-channel policy : E.P
-channel evaluate : P
+channel get_mart
+channel policy : POLICIES
 
-SYS_EVENT(e) = event.e -> SYSTEM
-SYS_ACTION(a) = action.a -> SYSTEM
-
-SYSTEM = ||| e : E @ SYS_EVENT(e)
+SYSTEM = SENSORS
 		 []
-		 ||| a : A @ SYS_ACTION(a)
+		 ACTUATORS
 
-SENSOR(e) = event.e -> add_e.e -> (||| a : E @ SENSOR(a))
-SENSORS = ||| e : E @ SENSOR(e) -- erro =(
+SENSOR(e) = event.e -> add_e.e -> SENSOR(e)
+SENSORS = ||| e : E @ SENSOR(e) 
+
+ACTUATOR(a) = action.a -> event.a -> ACTUATOR(a)
+ACTUATORS = ||| a : A @ ACTUATOR(a)
 
 
 -- buffer 
@@ -31,8 +35,14 @@ BUFF(N,s) = #s < N-1 & add_e?e -> BUFF(N,s^<e>)
 -- end buffer
 
 MONITOR = get_e?e -> update_mart!e -> MONITOR
-ANALIZER = update_mart?e -> analize -> policy!e!2 -> ANALIZER -- criar um get_policy
-PLANNER = policy?e?p -> evaluate!p -> execute -> PLANNER -- execute um plano de ação
+
+analize(e) = if e == 0 then (0,5,8) else (1,6,9) -- detect_symptom
+evaluate(p) = if p == (0,5,8) then 8 else 9
+
+ANALIZER = update_mart?e -> policy!analize(e) -> ANALIZER -- criar a condição se politica existir notificar planner -- if not empty(analize(e)) then policy!analize(e) else ANALIZER
+
+PLANNER = policy?p -> execute!evaluate(p) -> PLANNER -- criar a condição da ação
+-- if not empty(evaluate(p)) then execute!evaluate(p) else PLANNER
 
 -- data storage
     -- M@RT mantém o estado do sistema e faz parte da base de conhecimento
@@ -56,7 +66,7 @@ NOTIFY_PLANNER = evaluate!p -> ANALIZER
 --PLANNER = evaluate?p -> change -> execute!a -> PLANNER
 --EXECUTER = execute?a -> EXECUTER
 
-TOUCH_POINT(p) = execute!p -> action!p -> TOUCH_POINT(p)
+TOUCH_POINT(p) = execute?p -> action!p -> TOUCH_POINT(p)
 
 
 AM = (SYSTEM
