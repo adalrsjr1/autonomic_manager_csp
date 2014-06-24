@@ -1,31 +1,25 @@
 B = <> -- buffer
 
 E = {0,1}
-A = {0,1}
-P = {2..3}
-C = {5..7}
-POLICIES = {POLICY_1, POLICY_2} 
+A = {8,9}
+POLICIES = {(0,5,8),(1,6,9)} -- E.C.A. 
 --POLICY = (event, condition,action)
-POLICY_1 = (0,5,8)
-POLICY_2 = (1,6,9)
 
-channel event, monitor, get_data, get_event, analizer, add_e, get_e: E --update_mart == update M@RT
-channel action: A
-channel store, get_policy
-channel execute: A
+channel event, add_e, get_e: E --update_mart == update M@RT
+channel apply: A
+channel get_policy
+channel execute, change: A
 channel update_mart : E
-channel get_mart
-channel policy : POLICIES
+channel policy: POLICIES
 
-SYSTEM = SENSORS
-		 []
-		 ACTUATORS
+--SYSTEM = SENSORS
+		 --[]
+--		 ACTUATORS
 
 SENSOR(e) = event.e -> add_e.e -> SENSOR(e)
 SENSORS = ||| e : E @ SENSOR(e) 
 
-ACTUATOR(a) = action.a -> event.a -> ACTUATOR(a)
-ACTUATORS = ||| a : A @ ACTUATOR(a)
+ACTUATOR(a) = execute.a -> apply.a -> ACTUATOR(a) 
 
 
 -- buffer 
@@ -36,13 +30,12 @@ BUFF(N,s) = #s < N-1 & add_e?e -> BUFF(N,s^<e>)
 
 MONITOR = get_e?e -> update_mart!e -> MONITOR
 
-analize(e) = if e == 0 then (0,5,8) else (1,6,9) -- detect_symptom
+analize(e) = if e == 0 then (0,5,8) else (1,6,9) -- detect_symptom -- analize mart -- kb
 evaluate(p) = if p == (0,5,8) then 8 else 9
 
-ANALIZER = update_mart?e -> policy!analize(e) -> ANALIZER -- criar a condição se politica existir notificar planner -- if not empty(analize(e)) then policy!analize(e) else ANALIZER
+ANALIZER = update_mart?e -> policy!analize(e) -> ANALIZER 
 
-PLANNER = policy?p -> execute!evaluate(p) -> PLANNER -- criar a condição da ação
--- if not empty(evaluate(p)) then execute!evaluate(p) else PLANNER
+PLANNER = policy?p -> change!evaluate(p) -> PLANNER 
 
 -- data storage
     -- M@RT mantém o estado do sistema e faz parte da base de conhecimento
@@ -51,31 +44,45 @@ PLANNER = policy?p -> execute!evaluate(p) -> PLANNER -- criar a condição da ação
 -- DATA(e) = get_state?s -> member(e,KB) & 
 -- end data storage
 
-KNOWLEDGE_BASE =  update_mart -> KNOWLEDGE_BASE 
-                  []
-				  get_policy -> KNOWLEDGE_BASE
+--KNOWLEDGE_BASE =  update_mart -> KNOWLEDGE_BASE 
+--                  []
+--				  get_policy -> KNOWLEDGE_BASE
 
--- detect symptom
-DETECT_SYMPTOM(p) = NOTIFY_PLANNER -- das políticas presentes detectar o sintoma a partir de um evento
-NOTIFY_PLANNER = evaluate!p -> ANALIZER 
--- end detect symptom
+TOUCH_POINT(a) = change?aa -> a == aa & execute!aa -> TOUCH_POINT(a) -- se a ação for diferente do adaptador STOP -- refinar aqui?!?!?
 
+ACT(a) = TOUCH_POINT(a) [|{|execute|}|] ACTUATOR(a) -- comunicação 1:1 entre o sistema autonomico e os atuadores, apenas um determinado atuador por vez executa sua ação
 
+AM = (
+	  	(
+			(BUFF(3,B)
+			[|{|get_e|}|]
+			MONITOR
+		)
+		[|{|update_mart|}|]
+		(
+			ANALIZER
+			[|{|policy|}|]
+			PLANNER)
+		)
+		--[|{|change|}|]
+	    --ACTUATORS	
+	 )
+    
+AU_ACT = AM [|{|change|}|] ( ||| a: A @ ACT(a) )
 
---analizer?e -> get_policy -> ANALIZER --DETECT_SYMPTOM(p) -- das políticas selecionadas planejar a ação a ser tomada
---PLANNER = evaluate?p -> change -> execute!a -> PLANNER
---EXECUTER = execute?a -> EXECUTER
+WHOLE_SYS = SENSORS [|{|add_e|}|] AU_ACT
 
-TOUCH_POINT(p) = execute?p -> action!p -> TOUCH_POINT(p)
+assert WHOLE_SYS :[deadlock free]
+assert WHOLE_SYS :[deterministic]
 
-
-AM = (SYSTEM
-         [|{|event|}|] 
-     SENSORS) 
-         [|{|monitor|}|] 
-     (MONITOR
-         [|{|update_mart|}|]
-     KNOWLEDGE_BASE)
-     
 assert AM :[deadlock free]
 assert AM :[deterministic]
+
+assert AU_ACT :[deadlock free]
+assert AU_ACT :[deterministic]
+
+assert ||| a: A @ ACT(a) :[deadlock free]
+assert ||| a: A @ ACT(a) :[deterministic]
+
+assert ACT(8) :[deadlock free]
+assert ACT(8) :[deterministic]
