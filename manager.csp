@@ -1,0 +1,51 @@
+channel in, out : {0,1}
+BUFFER_SIGNALS = <>
+
+BUFFER(b) = B(b)
+B(<>) = in?x -> B(<x>)
+B(<y>^s) = out!y -> B(s)
+           [] 
+		   out!y -> B(s) [] in?x -> B(<y>^s^<x>)
+
+STATES = {0..5}
+
+datatype SPT = sym.{cond | cond <- STATES}
+SYMPTOMS = {sym.1, sym.3, sym.4}
+datatype CHANGE_PLAN = change.{p | p <- {0..5}}
+ACTIONS = {change.1, change.2, change.3}
+CHANGES = (| sym.1 => change.1, sym.3 => change.2, sym.4 => change.3  |)
+
+channel state : STATES
+channel signal
+channel symptom_detect : SPT
+channel change_plan : CHANGE_PLAN 
+channel execute, apply_change : CHANGE_PLAN
+
+Sys = signal -> ( [] s : STATES @ state.s -> Sys )
+      []
+	  apply_change?cp -> signal -> ([] s : {a | a <- STATES, inter({change.a},ACTIONS) == {cp}} @ state.s -> Sys ) 
+
+check(n) = {s | s <- inter({sym.n}, SYMPTOMS), member(sym.n, SYMPTOMS)}
+
+request_change(n) = mapLookup(CHANGES,n)
+
+Monitor = signal -> state?n -> if empty(check(n)) then Monitor else symptom_detect!head(seq(check(n))) -> Monitor
+
+Analizer = symptom_detect?s -> if member(s,SYMPTOMS) then change_plan!request_change(s) -> Analizer else Analizer
+
+Planner = change_plan?cp -> execute!cp -> Planner
+
+Executor = execute?cp -> apply_change!cp -> Executor
+
+Autonomic = ((Monitor [|{|symptom_detect|}|] Analizer) [|{|change_plan|}|] Planner) [|{|execute|}|] Executor
+
+assert Autonomic :[deadlock free]
+assert Autonomic :[deterministic]
+
+assert Sys :[deadlock free]
+assert Sys :[deterministic]
+
+assert Sys [|{|signal, state, apply_change|}|] Autonomic :[deadlock free]
+assert Sys [|{|signal, state, apply_change|}|] Autonomic :[deterministic]
+
+
