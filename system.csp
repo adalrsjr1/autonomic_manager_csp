@@ -1,0 +1,33 @@
+STATES = {1..2}
+channel state, signal,monitor, execute : STATES
+channel get_x, get_y, set_x, set_y: STATES
+channel sense
+
+-- memoria para troca de contexto
+Mem(x) = get_x!x -> Mem(x)
+         []
+         set_x?x -> Mem(x)
+
+Sys(i) = ([] e : diff(STATES, {i}) @ state.e -> signal.e -> Sys(e))
+System = ([] i : STATES @ state.i -> signal.i -> Sys(i))
+
+Sensor = signal?i -> sense -> monitor.i -> Sensor  
+Action(i) = execute.i -> state.i -> signal.i -> set_x!(i) -> SKIP ; get_x?i ->Sys(i)
+            
+
+Au = [] e : STATES @ Action(e)
+
+assert (Au [|{|get_x,set_x|}|] Mem(1)) [|{|state, signal|}|] System :[deadlock free]
+assert (Au [|{|get_x,set_x|}|] Mem(1)) [|{|state, signal|}|] System :[deterministic]
+------------------------ propriedades -------------------- 
+
+-- sentir evento antes de monitorar
+TestSense1(i) = ([] e : diff(STATES, {i}) @ sense -> monitor.e -> TestSense1(e)) 
+TestSense_1 = ([] i : STATES @ sense -> monitor.i -> TestSense1(i))
+
+-- monitorar evento antes de sentir 
+TestSense2(i) = ([] e : diff(STATES, {i}) @ monitor.e -> sense -> TestSense2(e)) 
+TestSense_2 = ([] i : STATES @ monitor.i -> sense -> TestSense2(i))
+
+assert TestSense_1 [T= (System [|{|signal|}|] Sensor \ {|state,signal|})
+assert TestSense_2 [T= (System [|{|signal|}|] Sensor \ {|state,signal|})
