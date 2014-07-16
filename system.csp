@@ -1,24 +1,100 @@
-STATES = {1..2}
+-- system
+STATES = {1..5}
 channel state, signal,monitor, execute : STATES
 channel get_x, get_y, set_x, set_y: STATES
 channel sense
+channel next
 
 -- memoria para troca de contexto
 Mem(x) = get_x!x -> Mem(x)
          []
          set_x?x -> Mem(x)
 
-Sys(i) = ([] e : diff(STATES, {i}) @ state.e -> signal.e -> Sys(e))
-System = ([] i : STATES @ state.i -> signal.i -> Sys(i))
+Sys(i) = (([] e : diff(STATES, {i}) @ state.e -> signal.e -> Sys(e))) 
+         []
+		 (if length(OUT) > 0 then Act else STOP)
+        
+System = ([] i : STATES @ Sys(i)) 
 
-Sensor = signal?i -> sense -> monitor.i -> Sensor  
-Action(i) = execute.i -> state.i -> signal.i -> set_x!(i) -> SKIP ; get_x?i ->Sys(i)
-            
 
-Au = [] e : STATES @ Action(e)
+Sensor = (signal?i -> sense -> in_in!i -> Sensor) [|{|in_in|}|] Buffer_in(IN)  
+Action = execute?i -> state.i -> signal.i -> set_x!(i) -> SKIP ; get_x?i ->SS(i)
+Act = Action [|{|get_x, set_x|}|] Mem(1)
 
-assert (Au [|{|get_x,set_x|}|] Mem(1)) [|{|state, signal|}|] System :[deadlock free]
-assert (Au [|{|get_x,set_x|}|] Mem(1)) [|{|state, signal|}|] System :[deterministic]
+Act1 = execute?i -> Sys(i)
+
+A = (out_out?i -> execute.i -> state.i -> signal.i -> A) [|{|out_out|}|] Buffer_out(OUT)
+
+S = state?i -> signal!i -> ( next -> S [] execute?x -> Sidx(x) )
+
+Sidx(i) = state.i -> signal!i -> ( next -> S [] execute?x -> Sidx(x))
+
+SS(i) = (state.i -> signal!i -> next -> SSS)
+        []
+		(execute.i -> state.i -> signal!i ->  SSS)
+SSS = ([] i : STATES @ SS(i) )
+
+
+
+S1 = state.1 -> signal.1 -> state.2 -> signal.2 -> (S1 [] state.3 -> signal.3 -> (state.4 -> signal.4 -> S1 [] state.5 -> signal.5 -> S1))
+S2 = state.1 -> signal.1 -> state.2 -> signal.2 -> state.3 -> signal.3 -> state.5 -> signal.5 -> S2
+S3 = state.1 -> signal.1 -> state.2 -> signal.2 -> S3
+S4 = state.1 -> signal.1 -> state.2 -> signal.2 -> state.3 -> signal.3 -> state.4 -> signal.4 -> S4
+S5 = state.1 -> signal.1 -> state.2 -> signal.2 -> S5
+
+Au = S [|{|signal, execute, next|}|] Autonomic
+
+assert Au :[deadlock free]
+assert Au :[deterministic]
+assert Au :[divergence free]
+assert S1 [T= S2
+assert S1 [T= S3
+assert S1 [T= S4
+assert S \ {|execute, next, in_in|} [T= S1
+assert Au \ {|symptom_detect, change_plan, apply, next, execute, monitor |} [T= S4
+--Au = [] e : STATES @ Action(e)
+-- buffers
+IN = <>
+OUT = <>
+channel in_in, in_out, out_out, out_in : STATES
+Buffer_in(b) = B_in(b)
+B_in(<>) = in_in?x -> B_in(<x>)
+B_in(<y>^s) = out_in!y -> B_in(s) [] in_in?x -> B_in(<y>^s^<x>)
+
+Buffer_out(b) = B_out(b)
+B_out(<>) = in_out?x -> B_out(<x>)
+B_out(<y>^s) = out_out!y -> B_out(s) [] in_out?x -> B_out(<y>^s^<x>)
+
+-- autonomic manager
+datatype SPT = sym.{cond | cond <- STATES}
+--SYMPTOMS = {sym.1, sym.3, sym.5}
+SYMPTOMS = {sym.2, sym.3}
+datatype CHANGE_PLAN = change.{p | p <- {1..5}}
+--ACTIONS = (| change.1 => 4, change.2 => 5, change.3 => 1 |)
+--CHANGES = (| sym.1 => change.1, sym.3 => change.2, sym.5 => change.3 |)
+ACTIONS = (| change.1 => 3, change.2 => 5 |)
+CHANGES = (| sym.2 => change.1, sym.3 => change.2 |)
+
+channel symptom_detect: SPT
+channel change_plan : CHANGE_PLAN
+channel apply : STATES
+
+check(n) = {s | s <- inter({sym.n},SYMPTOMS), member(sym.n,SYMPTOMS)}
+Monitor = signal?s -> monitor.s -> if empty(check(s)) then next -> Monitor else symptom_detect!head(seq(check(s))) -> Monitor
+
+request_change(n) = mapLookup(CHANGES,n)
+Analizer = symptom_detect?s -> if member(s, SYMPTOMS) then change_plan!request_change(s) -> Analizer else Analizer
+
+Planner = change_plan?cp -> (mapMember(ACTIONS, cp)) & apply!mapLookup(ACTIONS,cp) -> Planner 
+
+Executor = apply?cp -> execute!cp -> Executor 
+
+
+Autonomic = ((Monitor [|{|symptom_detect|}|] Analizer) [|{|change_plan|}|] Planner) [|{|apply|}|] Executor
+
+assert Autonomic :[deadlock free]
+assert Autonomic :[deterministic]
+
 ------------------------ propriedades -------------------- 
 
 -- sentir evento antes de monitorar
