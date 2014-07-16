@@ -65,17 +65,17 @@ datatype CHANGE_PLAN = change.{p | p <- {1..5}}
 
 ---------------Knowledge Base---------------
 -- S2
-SYMPTOMS = {sym.2, sym.3}
-CHANGES = (| sym.2 => change.1, sym.3 => change.2 |)
-ACTIONS = (| change.1 => 3, change.2 => 5 |)
+--SYMPTOMS = {sym.2, sym.3}
+--CHANGES = (| sym.2 => change.1, sym.3 => change.2 |)
+--ACTIONS = (| change.1 => 3, change.2 => 5 |)
 -- S3
 --SYMPTOMS = {sym.2}
 --CHANGES = (| sym.2 => change.1 |)
 --ACTIONS = (| change.1 => 1 |)
 -- S4
---SYMPTOMS = {sym.2, sym.3}
---CHANGES = (| sym.2 => change.1, sym.3 => change.2 |)
---ACTIONS = (| change.1 => 3, change.2 => 4 |)
+SYMPTOMS = {sym.2, sym.3}
+CHANGES = (| sym.2 => change.1, sym.3 => change.2 |)
+ACTIONS = (| change.1 => 3, change.2 => 4 |)
 ---------------end knowledge Base---------------
 channel symptom_detect: SPT
 channel change_plan : CHANGE_PLAN
@@ -96,4 +96,12 @@ Autonomic = ((Monitor [|{|symptom_detect|}|] Analizer) [|{|change_plan|}|] Plann
 
 assert Autonomic :[deadlock free]
 assert Autonomic :[deterministic]
+
+--
+-- monitor.[n]
+-- execute.[m]
+A(n,m) = monitor.n -> execute.m -> A(n,m)
+B(m,n) = execute.m -> monitor.n -> B(m,n)
+assert Autonomic \ {|signal, symptom_detect, change_plan, apply|} [T= A(3,4)
+assert Autonomic \ {|signal, symptom_detect, change_plan, apply|} [T= B(4,3)
 ---------------autonomic manager---------------
