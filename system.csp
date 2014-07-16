@@ -1,46 +1,23 @@
--- system
+---------------system---------------
 STATES = {1..5}
 channel state, signal,monitor, execute : STATES
-channel get_x, get_y, set_x, set_y: STATES
-channel sense
 channel next
 
--- memoria para troca de contexto
-Mem(x) = get_x!x -> Mem(x)
-         []
-         set_x?x -> Mem(x)
-
-Sys(i) = (([] e : diff(STATES, {i}) @ state.e -> signal.e -> Sys(e))) 
-         []
-		 (if length(OUT) > 0 then Act else STOP)
-        
-System = ([] i : STATES @ Sys(i)) 
-
-
-Sensor = (signal?i -> sense -> in_in!i -> Sensor) [|{|in_in|}|] Buffer_in(IN)  
-Action = execute?i -> state.i -> signal.i -> set_x!(i) -> SKIP ; get_x?i ->SS(i)
-Act = Action [|{|get_x, set_x|}|] Mem(1)
-
-Act1 = execute?i -> Sys(i)
-
-A = (out_out?i -> execute.i -> state.i -> signal.i -> A) [|{|out_out|}|] Buffer_out(OUT)
-
+-- ambiente de execucao do sistema
 S = state?i -> signal!i -> ( next -> S [] execute?x -> Sidx(x) )
-
 Sidx(i) = state.i -> signal!i -> ( next -> S [] execute?x -> Sidx(x))
 
-SS(i) = (state.i -> signal!i -> next -> SSS)
-        []
-		(execute.i -> state.i -> signal!i ->  SSS)
-SSS = ([] i : STATES @ SS(i) )
+-----------end system---------------
 
-
-
+---------------system properties---------------
+-- propriedade geral
+-- todos os estados que o sistema pode ter
+-- durante a execucao do sistema essa modelo nao e permitido
 S1 = state.1 -> signal.1 -> state.2 -> signal.2 -> (S1 [] state.3 -> signal.3 -> (state.4 -> signal.4 -> S1 [] state.5 -> signal.5 -> S1))
+-- possiveis estados do sistema derivados de S1
 S2 = state.1 -> signal.1 -> state.2 -> signal.2 -> state.3 -> signal.3 -> state.5 -> signal.5 -> S2
 S3 = state.1 -> signal.1 -> state.2 -> signal.2 -> S3
 S4 = state.1 -> signal.1 -> state.2 -> signal.2 -> state.3 -> signal.3 -> state.4 -> signal.4 -> S4
-S5 = state.1 -> signal.1 -> state.2 -> signal.2 -> S5
 
 Au = S [|{|signal, execute, next|}|] Autonomic
 
@@ -50,31 +27,56 @@ assert Au :[divergence free]
 assert S1 [T= S2
 assert S1 [T= S3
 assert S1 [T= S4
-assert S \ {|execute, next, in_in|} [T= S1
-assert Au \ {|symptom_detect, change_plan, apply, next, execute, monitor |} [T= S4
---Au = [] e : STATES @ Action(e)
--- buffers
-IN = <>
-OUT = <>
-channel in_in, in_out, out_out, out_in : STATES
-Buffer_in(b) = B_in(b)
-B_in(<>) = in_in?x -> B_in(<x>)
-B_in(<y>^s) = out_in!y -> B_in(s) [] in_in?x -> B_in(<y>^s^<x>)
 
-Buffer_out(b) = B_out(b)
-B_out(<>) = in_out?x -> B_out(<x>)
-B_out(<y>^s) = out_out!y -> B_out(s) [] in_out?x -> B_out(<y>^s^<x>)
+assert S1 [F= S2
 
--- autonomic manager
+assert S \ {|execute, next|} [T= S1
+TO_HIDE = {|symptom_detect, change_plan, apply, next, execute, monitor |}
+assert Au \ TO_HIDE [T= S1
+assert Au \ TO_HIDE [T= S2
+assert Au \ TO_HIDE [T= S3
+assert Au \ TO_HIDE [T= S4
+
+---------------end system properties---------------
+
+---------------autonomic manager---------------
 datatype SPT = sym.{cond | cond <- STATES}
---SYMPTOMS = {sym.1, sym.3, sym.5}
-SYMPTOMS = {sym.2, sym.3}
 datatype CHANGE_PLAN = change.{p | p <- {1..5}}
---ACTIONS = (| change.1 => 4, change.2 => 5, change.3 => 1 |)
---CHANGES = (| sym.1 => change.1, sym.3 => change.2, sym.5 => change.3 |)
-ACTIONS = (| change.1 => 3, change.2 => 5 |)
-CHANGES = (| sym.2 => change.1, sym.3 => change.2 |)
 
+-- descrever quais eventos sao capturados pelo gerente autonomico
+--
+-- sym.[evento] 
+--
+-- cada sym.[evento] corresponde a um sintoma que ativa a adaptacao
+--
+
+-- associacao entre os eventos capturados e as mudancas que devem ser feitas
+-- para cada evento capturado uma mudança deve ser associada
+-- 
+-- sym.[evento] => change.[mudanca]
+--
+
+-- associacao entre as mundancas e a acao a ser realizada
+-- cada acao altera o estado do sistema
+-- para cada mudanca descrita no modelo deve ter uma acao associada
+--
+-- change.[mudanca] => [acao]
+-- cada acao e um estado do sistema monitorado
+
+---------------Knowledge Base---------------
+-- S2
+SYMPTOMS = {sym.2, sym.3}
+CHANGES = (| sym.2 => change.1, sym.3 => change.2 |)
+ACTIONS = (| change.1 => 3, change.2 => 5 |)
+-- S3
+--SYMPTOMS = {sym.2}
+--CHANGES = (| sym.2 => change.1 |)
+--ACTIONS = (| change.1 => 1 |)
+-- S4
+--SYMPTOMS = {sym.2, sym.3}
+--CHANGES = (| sym.2 => change.1, sym.3 => change.2 |)
+--ACTIONS = (| change.1 => 3, change.2 => 4 |)
+---------------end knowledge Base---------------
 channel symptom_detect: SPT
 channel change_plan : CHANGE_PLAN
 channel apply : STATES
@@ -94,16 +96,4 @@ Autonomic = ((Monitor [|{|symptom_detect|}|] Analizer) [|{|change_plan|}|] Plann
 
 assert Autonomic :[deadlock free]
 assert Autonomic :[deterministic]
-
------------------------- propriedades -------------------- 
-
--- sentir evento antes de monitorar
-TestSense1(i) = ([] e : diff(STATES, {i}) @ sense -> monitor.e -> TestSense1(e)) 
-TestSense_1 = ([] i : STATES @ sense -> monitor.i -> TestSense1(i))
-
--- monitorar evento antes de sentir 
-TestSense2(i) = ([] e : diff(STATES, {i}) @ monitor.e -> sense -> TestSense2(e)) 
-TestSense_2 = ([] i : STATES @ monitor.i -> sense -> TestSense2(i))
-
-assert TestSense_1 [T= (System [|{|signal|}|] Sensor \ {|state,signal|})
-assert TestSense_2 [T= (System [|{|signal|}|] Sensor \ {|state,signal|})
+---------------autonomic manager---------------
