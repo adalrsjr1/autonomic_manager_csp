@@ -5,7 +5,7 @@ channel next
 
 -- ambiente de execucao do sistema
 S = state?i -> signal!i -> ( next -> S [] execute?x -> Sidx(x) )
-Sidx(i) = state.i -> signal!i -> ( next -> S [] execute?x -> Sidx(x))
+Sidx(i) = state.i -> signal!i -> execute?x -> Sidx(x)
 
 -----------end system---------------
 
@@ -17,21 +17,21 @@ S1 = state.1 -> signal.1 -> state.2 -> signal.2 -> (S1 [] state.3 -> signal.3 ->
 -- possiveis estados do sistema derivados de S1
 S2 = state.1 -> signal.1 -> state.2 -> signal.2 -> state.3 -> signal.3 -> state.5 -> signal.5 -> S2
 S3 = state.1 -> signal.1 -> state.2 -> signal.2 -> S3
-S4 = state.1 -> signal.1 -> state.2 -> signal.2 -> state.3 -> signal.3 -> state.4 -> signal.4 -> S4
+S4 = state.1 -> signal.1 -> state.5 -> signal.5 -> state.3 -> signal.3 -> state.2 -> signal.2 -> S4
 
 Au = S [|{|signal, execute, next|}|] Autonomic
 
 assert Au :[deadlock free]
 assert Au :[deterministic]
 assert Au :[divergence free]
-assert S1 [T= S2
-assert S1 [T= S3
-assert S1 [T= S4
+assert S \{|execute, next|} [T= S2
+assert S \{|execute, next|} [T= S3
+assert S \{|execute, next|} [T= S4
 
-assert S1 [F= S2
+assert S \{|execute, next|} [T= S1
 
 assert S \ {|execute, next|} [T= S1
-TO_HIDE = {|symptom_detect, change_plan, apply, next, execute, monitor |}
+TO_HIDE = {|symptom_detect, change_plan, apply, next, execute, monitor, sense|}
 assert Au \ TO_HIDE [T= S1
 assert Au \ TO_HIDE [T= S2
 assert Au \ TO_HIDE [T= S3
@@ -75,16 +75,30 @@ datatype CHANGE_PLAN = change.{p | p <- {1..5}}
 --ACTIONS = (| change.1 => 1 |)
 
 -- S4
-SYMPTOMS = {sym.2, sym.3}
-CHANGES = (| sym.2 => change.1, sym.3 => change.2 |)
-ACTIONS = (| change.1 => 3, change.2 => 4 |)
+SYMPTOMS = {sym.1, sym.2, sym.3, sym.5}
+CHANGES = (| sym.1 => change.1, sym.2 => change.2, sym.3 => change.3, sym.5 => change.4 |)
+ACTIONS = (| change.1 => 5, change.2 => 1, change.3 => 2, change.4 => 3 |)
 ---------------end knowledge Base---------------
 channel symptom_detect: SPT
 channel change_plan : CHANGE_PLAN
 channel apply : STATES
+channel sense : STATES
 
+---------------Centralized Monitor---------------
+-- Monitor
 check(n) = {s | s <- inter({sym.n},SYMPTOMS), member(sym.n,SYMPTOMS)}
-Monitor = signal?s -> monitor.s -> if empty(check(s)) then next -> Monitor else symptom_detect!head(seq(check(s))) -> Monitor
+Monitor = signal?s -> monitor!s -> if empty(check(s)) then next -> Monitor else symptom_detect!head(seq(check(s))) -> Monitor
+-------------------------------------------------
+
+---------------Distributed Monitor---------------
+-- Monitor  
+M(i) = sense?s -> if s == i then (signal.s -> monitor!s -> if empty (check(s)) then next -> M(i) else symptom_detect!head(seq(check(s))) -> M(i) ) else M(i)
+MMM = ||| i : STATES @ M(i) 
+
+assert MMM \ {|sense|} [T= Monitor
+assert MMM \ {|sense|} [FD= Monitor
+-------------------------------------------------
+
 
 request_change(n) = mapLookup(CHANGES,n)
 Analizer = symptom_detect?s -> if member(s, SYMPTOMS) then change_plan!request_change(s) -> Analizer else Analizer
@@ -93,12 +107,10 @@ Planner = change_plan?cp -> (mapMember(ACTIONS, cp)) & apply!mapLookup(ACTIONS,c
 
 Executor = apply?cp -> execute!cp -> Executor 
 
-
-Autonomic = ((Monitor [|{|symptom_detect|}|] Analizer) [|{|change_plan|}|] Planner) [|{|apply|}|] Executor
+Autonomic = ((MMM [|{|symptom_detect|}|] Analizer) [|{|change_plan|}|] Planner) [|{|apply|}|] Executor
 
 assert Autonomic :[deadlock free]
 assert Autonomic :[deterministic]
-
 --
 -- monitor.[n]
 -- execute.[m]
